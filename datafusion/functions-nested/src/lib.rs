@@ -196,6 +196,11 @@ pub fn register_all(registry: &mut dyn FunctionRegistry) -> Result<()> {
     // Register the analyzer rewrite that turns `concat(array, ...)` into
     // `array_concat(...)`.
     registry.register_function_rewrite(Arc::new(concat_rewrite::ConcatArrayRewrite))?;
+    // Register the analyzer rewrite that rejects `concat_ws` calls with array
+    // arguments (see #21703).
+    registry.register_function_rewrite(Arc::new(
+        concat_rewrite::ConcatWsArrayRejectRewrite,
+    ))?;
 
     Ok(())
 }

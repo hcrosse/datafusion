@@ -108,6 +108,8 @@ impl SessionStateDefaults {
         let rewrites: Vec<Arc<dyn FunctionRewrite + Send + Sync>> = vec![
             #[cfg(feature = "nested_expressions")]
             Arc::new(functions_nested::concat_rewrite::ConcatArrayRewrite),
+            #[cfg(feature = "nested_expressions")]
+            Arc::new(functions_nested::concat_rewrite::ConcatWsArrayRejectRewrite),
         ];
 
         rewrites

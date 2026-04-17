@@ -15,7 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! [`ConcatArrayRewrite`] rewrites `concat(array, ...)` to `array_concat(array, ...)`.
+//! Analyzer-phase rewrites for string-concat family functions that need
+//! array-aware handling:
+//!
+//! - [`ConcatArrayRewrite`] rewrites `concat(array, ...)` to
+//!   `array_concat(array, ...)`.
+//! - [`ConcatWsArrayRejectRewrite`] rejects `concat_ws` calls that include any
+//!   array argument (there is no direct array analogue of `concat_ws`).
 
 use std::any::Any;
 
@@ -28,6 +34,7 @@ use datafusion_expr::ExprSchemable;
 use datafusion_expr::expr::ScalarFunction;
 use datafusion_expr::expr_rewriter::FunctionRewrite;
 use datafusion_functions::string::concat::ConcatFunc;
+use datafusion_functions::string::concat_ws::ConcatWsFunc;
 
 use crate::concat::array_concat;
 
@@ -82,5 +89,55 @@ impl FunctionRewrite for ConcatArrayRewrite {
             unreachable!("already matched above")
         };
         Ok(Transformed::yes(array_concat(args)))
+    }
+}
+
+/// [`FunctionRewrite`] that rejects `concat_ws` calls with array arguments at
+/// the analyzer phase.
+///
+/// `concat_ws` operates on scalar strings; without this rewrite the default
+/// string coercion would silently stringify array arguments (for example
+/// `concat_ws(',', make_array(1, 2), make_array(3, 4))` would produce
+/// `[1, 2],[3, 4]`). Unlike `concat`, there is no array equivalent to rewrite
+/// to. Users joining a single array with a separator should use
+/// `array_to_string(array, sep)` instead.
+#[derive(Debug, Default)]
+pub struct ConcatWsArrayRejectRewrite;
+
+impl FunctionRewrite for ConcatWsArrayRejectRewrite {
+    fn name(&self) -> &str {
+        "concat_ws_array_reject"
+    }
+
+    fn rewrite(
+        &self,
+        expr: Expr,
+        schema: &DFSchema,
+        _config: &ConfigOptions,
+    ) -> Result<Transformed<Expr>> {
+        let Expr::ScalarFunction(ScalarFunction { func, args }) = &expr else {
+            return Ok(Transformed::no(expr));
+        };
+        if !(func.inner().as_ref() as &dyn Any).is::<ConcatWsFunc>() {
+            return Ok(Transformed::no(expr));
+        }
+
+        for arg in args {
+            match arg.get_type(schema)? {
+                DataType::List(_)
+                | DataType::LargeList(_)
+                | DataType::FixedSizeList(_, _) => {
+                    return plan_err!(
+                        "concat_ws does not support array arguments; \
+                         use array_to_string(array, separator) to join a \
+                         single array, or flatten arrays before calling \
+                         concat_ws"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        Ok(Transformed::no(expr))
     }
 }

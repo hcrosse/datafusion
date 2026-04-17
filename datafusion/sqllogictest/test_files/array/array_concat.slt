@@ -470,4 +470,48 @@ statement error Cannot mix array and non-array arguments in concat function
 select concat('x', make_array(1));
 
 
+## concat_ws has no array analogue (unlike concat, which rewrites to
+## array_concat). Array arguments were previously silently stringified; an
+## analyzer-phase FunctionRewrite now rejects them (see #21703).
+
+# All-array arguments are rejected.
+statement error concat_ws does not support array arguments
+select concat_ws(',', make_array(1, 2, 3), make_array(4, 5));
+
+# A single array argument is rejected too (users should reach for
+# array_to_string instead).
+statement error concat_ws does not support array arguments
+select concat_ws(',', make_array(1, 2, 3));
+
+# Mixed array + string arguments are rejected in either order.
+statement error concat_ws does not support array arguments
+select concat_ws(',', make_array(1, 2), 'x');
+
+statement error concat_ws does not support array arguments
+select concat_ws(',', 'x', make_array(1, 2));
+
+# An array used as the separator itself is also rejected.
+statement error concat_ws does not support array arguments
+select concat_ws(make_array(','), 'a', 'b');
+
+# LargeList and FixedSizeList arguments are rejected.
+statement error concat_ws does not support array arguments
+select concat_ws(',', arrow_cast(['a', 'b'], 'LargeList(Utf8)'));
+
+statement error concat_ws does not support array arguments
+select concat_ws(',', arrow_cast(['a', 'b'], 'FixedSizeList(2, Utf8)'));
+
+# Non-array concat_ws calls still work: NULL separator returns NULL and
+# plain strings are concatenated as before.
+query T
+select concat_ws(NULL, 'a', 'b');
+----
+NULL
+
+query T
+select concat_ws('_', 'data', 'fusion');
+----
+data_fusion
+
+
 include ./cleanup.slt.part
